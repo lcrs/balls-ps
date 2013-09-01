@@ -2,7 +2,7 @@
 #include <sys/errno.h>
 #include <string.h>
 #include <stdlib.h>
-#include <sys/time.h>
+#include <fcntl.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include "pscryptor/PSCryptor.h"
@@ -16,16 +16,47 @@ struct colour {
 	float r, g, b;
 } lift, gamma, gain;
 
-double previously = 0.0;
-
 // Send script to Photoshop
 void hi(void) {
-	const char *templ = "var color = app.foregroundColor; color.rgb.blue = %d; app.foregroundColor = color;";
+	const char *templ = "var idsetd = charIDToTypeID( 'setd' );\
+    var desc13 = new ActionDescriptor();\
+    var idnull = charIDToTypeID( 'null' );\
+        var ref8 = new ActionReference();\
+        var idAdjL = charIDToTypeID( 'AdjL' );\
+        var idOrdn = charIDToTypeID( 'Ordn' );\
+        var idTrgt = charIDToTypeID( 'Trgt' );\
+        ref8.putEnumerated( idAdjL, idOrdn, idTrgt );\
+    desc13.putReference( idnull, ref8 );\
+    var idT = charIDToTypeID( 'T   ' );\
+        var desc14 = new ActionDescriptor();\
+        var idpresetKind = stringIDToTypeID( 'presetKind' );\
+        var idpresetKindType = stringIDToTypeID( 'presetKindType' );\
+        var idpresetKindCustom = stringIDToTypeID( 'presetKindCustom' );\
+        desc14.putEnumerated( idpresetKind, idpresetKindType, idpresetKindCustom );\
+        var idAdjs = charIDToTypeID( 'Adjs' );\
+            var list1 = new ActionList();\
+                var desc15 = new ActionDescriptor();\
+                var idChnl = charIDToTypeID( 'Chnl' );\
+                    var ref9 = new ActionReference();\
+                    var idChnl = charIDToTypeID( 'Chnl' );\
+                    var idChnl = charIDToTypeID( 'Chnl' );\
+                    var idCmps = charIDToTypeID( 'Cmps' );\
+                    ref9.putEnumerated( idChnl, idChnl, idCmps );\
+                desc15.putReference( idChnl, ref9 );\
+                var idGmm = charIDToTypeID( 'Gmm ' );\
+                desc15.putDouble( idGmm, %f );\
+            var idLvlA = charIDToTypeID( 'LvlA' );\
+            list1.putObject( idLvlA, desc15 );\
+        desc14.putList( idAdjs, list1 );\
+    var idLvls = charIDToTypeID( 'Lvls' );\
+    desc13.putObject( idT, idLvls, desc14 );\
+executeAction( idsetd, desc13, DialogModes.NO );\
+";
 	char *js;
 	char *crypted;
 	int plainlen, cryptlen, t, w;
 
-	asprintf(&js, templ, (int) lift.g);
+	asprintf(&js, templ, gamma.g);
 
 	plainlen = strlen(js) + 3 * sizeof(int);
 	cryptlen = PSCryptor::GetEncryptedLength(plainlen);
@@ -57,7 +88,6 @@ void hi(void) {
 	// Do the stuff
 	cryp->EncryptDecrypt(true, crypted, plainlen, crypted, cryptlen, (size_t *) &cryptlen);
 	w = write(sock, crypted, cryptlen);
-	printf("%d\n", w);
 
 	free(crypted);
 	free(js);
@@ -72,6 +102,7 @@ int main(int argc, char **argv) {
 	addr.sin_addr.s_addr = inet_addr("127.0.0.1");
 	addr.sin_port = htons(49494);
 	connect(sock, (struct sockaddr *) &addr, sizeof(addr));
+	fcntl(sock, F_SETFL, O_NONBLOCK);
 
 	// Setup encryption
 	cryp = new PSCryptor("popeface");
@@ -80,7 +111,7 @@ int main(int argc, char **argv) {
 	struct hid_device_info *devlist, *c;
 	hid_device *ball1, *ball2, *ball3;
 	unsigned char b[256];
-	int r, dirty = 0;
+	int r, dirty = 0, pending = 0;
 
 	devlist = hid_enumerate(0x047d, 0x2048);
 	c = devlist;
@@ -100,29 +131,26 @@ int main(int argc, char **argv) {
 	while(1) {
 		r = hid_read(ball1, b, sizeof(b));
 		if(r) {
-			printf("ball 1 %02hhx %02hhx %02hhx\n", b[1], b[2], b[3]);
-			lift.g += ((float) (signed char) b[2]) / 10.0;
-			dirty++;
+			//printf("ball 1 %02hhx %02hhx %02hhx\n", b[1], b[2], b[3]);
 		}
 		r = hid_read(ball2, b, sizeof(b));
 		if(r) {
-			printf("ball 2 %02hhx %02hhx %02hhx\n", b[1], b[2], b[3]);
+			//printf("ball 2 %02hhx %02hhx %02hhx\n", b[1], b[2], b[3]);
+			gamma.g += ((float) (signed char) b[2]) / 1000.0;
+			dirty = 1;
 		}
 		r = hid_read(ball3, b, sizeof(b));
 		if(r) {
-			printf("ball 3 %02hhx %02hhx %02hhx\n", b[1], b[2], b[3]);
+			//printf("ball 3 %02hhx %02hhx %02hhx\n", b[1], b[2], b[3]);
 		}
-		if(dirty) {
-			struct timeval tv;
-			struct timezone tz;
-			double now;
-			gettimeofday(&tv, &tz);
-			now = tv.tv_usec + (tv.tv_sec * 1000000.0);
-			if(now - previously > (1000000.0 / 10.0)) {
-				hi();
-				previously = now;
-				dirty = 0;
-			}
+		r = read(sock, b, sizeof(b));
+		if(r > 0) {
+			pending--;
+		}
+		if(dirty && pending < 2) {
+			hi();
+			pending++;
+			dirty = 0;
 		}
 		usleep(5000);
 	}
