@@ -1,3 +1,10 @@
+// Read from three Kensington trackballs via hidapi
+// Keep state as lift/gamma/gain RGB triplets
+// Push state to the selected Photoshop Levels adjustment layer
+// Reads omg.js in current folder as template for that
+// All v. dirt
+// lewis@lewissaunders.com
+
 #include <unistd.h>
 #include <sys/errno.h>
 #include <string.h>
@@ -16,16 +23,18 @@ struct colour {
 } lift, gamma, gain;
 char *templ;
 
-// Build script and send it to Photoshop
+// Build JS from template and send it to Photoshop
 void hi(void) {
 	char *js;
 	char *crypted;
 	int plainlen, cryptlen, t, w;
 	int ri0, ri1, ro0, ro1, gi0, gi1, go0, go1, bi0, bi1, bo0, bo1;
 	
-	// Oh dear
 	// Photoshop uses separate knobs when lift or gain go off the ends
+	// Its "input" knobs are used when lift is negative, "output" knobs when
+	// lift is positive
 	// Here ri0 is red input 0, i.e. red input knob at black end of histogram
+	// Oh dear
 	ri0 = ro0 = 0;
 	if(lift.r > 0.0) {
 		ro0 = lift.r;
@@ -123,13 +132,15 @@ int main(int argc, char **argv) {
 	addr.sin_port = htons(49494);
 	connect(sock, (struct sockaddr *) &addr, sizeof(addr));
 	fcntl(sock, F_SETFL, O_NONBLOCK);
+
+	// Today's Photoshop password of choice
 	cryp = new PSCryptor("popeface");
 
-	// Connect to the balls
+	// Connect to the USB HID devices
+	// Manuf and model IDs of my trackballs hard-coded below
 	struct hid_device_info *devlist, *c;
 	char* paths[3];
 	hid_device *ball1, *ball2, *ball3;
-	unsigned char b[256];
 	devlist = hid_enumerate(0x047d, 0x2048);
 	c = devlist;
 	paths[0] = strdup(c->path);
@@ -138,14 +149,15 @@ int main(int argc, char **argv) {
 	c = c->next;
 	paths[2] = strdup(c->path);
 	qsort(paths, 3, sizeof(char *), cmp);
-	ball1 = hid_open_path(paths[0]);
-	hid_set_nonblocking(ball1, 1);
+	ball1 = hid_open_path(paths[2]);
 	ball2 = hid_open_path(paths[1]);
+	ball3 = hid_open_path(paths[0]);
+	hid_set_nonblocking(ball1, 1);
 	hid_set_nonblocking(ball2, 1);
-	ball3 = hid_open_path(paths[2]);
 	hid_set_nonblocking(ball3, 1);
 
 	// Read from the balls, update state, write to Photoshop
+	unsigned char b[256];
 	float ring, x, y;
 	int r, dirty = 0, pending = 0;
 	lift.r = lift.g = lift.b = 0.0;
@@ -200,15 +212,18 @@ int main(int argc, char **argv) {
 			gain.b -= ring;
 			dirty = 1;
 		}
+		// Check Photoshop sockets for acks
 		r = read(sock, b, sizeof(b));
 		if(r > 0) {
 			pending--;
 		}
-		if(dirty && (pending < 3)) {
+		// Try not to flood Photoshop
+		if(dirty && (pending < 1)) {
 			hi();
 			pending++;
 			dirty = 0;
 		}
+		// Bit aggressive but can't be fucked with select() rn
 		usleep(500);
 	}
 }
