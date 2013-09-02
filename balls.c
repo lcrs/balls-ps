@@ -16,7 +16,7 @@ struct colour {
 } lift, gamma, gain;
 char *templ;
 
-// Send script to Photoshop
+// Build script and send it to Photoshop
 void hi(void) {
 	char *js;
 	char *crypted;
@@ -99,6 +99,11 @@ void hi(void) {
 	free(js);
 }
 
+// Helper for qsort god what decade is this
+int cmp(const void *a, const void *b) {
+	return strcmp(*((char **)a), *((char **)b));
+}
+
 int main(int argc, char **argv) {
 	// Read template .js file
 	FILE *f;
@@ -122,22 +127,27 @@ int main(int argc, char **argv) {
 
 	// Connect to the balls
 	struct hid_device_info *devlist, *c;
+	char* paths[3];
 	hid_device *ball1, *ball2, *ball3;
 	unsigned char b[256];
-	int r, dirty = 0, pending = 0;
 	devlist = hid_enumerate(0x047d, 0x2048);
 	c = devlist;
-	ball1 = hid_open_path(c->path);
+	paths[0] = strdup(c->path);
+	c = c->next;
+	paths[1] = strdup(c->path);
+	c = c->next;
+	paths[2] = strdup(c->path);
+	qsort(paths, 3, sizeof(char *), cmp);
+	ball1 = hid_open_path(paths[0]);
 	hid_set_nonblocking(ball1, 1);
-	c = c->next;
-	ball2 = hid_open_path(c->path);
+	ball2 = hid_open_path(paths[1]);
 	hid_set_nonblocking(ball2, 1);
-	c = c->next;
-	ball3 = hid_open_path(c->path);
+	ball3 = hid_open_path(paths[2]);
 	hid_set_nonblocking(ball3, 1);
 
 	// Read from the balls, update state, write to Photoshop
 	float ring, x, y;
+	int r, dirty = 0, pending = 0;
 	lift.r = lift.g = lift.b = 0.0;
 	gamma.r = gamma.g = gamma.b = 1.0;
 	gain.r = gain.g = gain.b = 255.0;
@@ -160,11 +170,11 @@ int main(int argc, char **argv) {
 		}
 		r = hid_read(ball2, b, sizeof(b));
 		if(r > 0) {
-			x = ((float) (signed char) b[1]) / 1000.0;
+			x = ((float) (signed char) b[1]) / 3000.0;
 			gamma.g += x;
 			gamma.r -= x / 2.0;
 			gamma.b -= x / 2.0;
-			y = ((float) (signed char) b[2]) / 1000.0;
+			y = ((float) (signed char) b[2]) / 3000.0;
 			gamma.r += y;
 			gamma.g -= y / 2.0;
 			gamma.b -= y / 2.0;
@@ -176,11 +186,11 @@ int main(int argc, char **argv) {
 		}
 		r = hid_read(ball3, b, sizeof(b));
 		if(r > 0) {
-			x = ((float) (signed char) b[1]) / 100.0;
+			x = ((float) (signed char) b[1]) / 30.0;
 			gain.g += x;
 			gain.r -= x / 2.0;
 			gain.b -= x / 2.0;
-			y = ((float) (signed char) b[2]) / 100.0;
+			y = ((float) (signed char) b[2]) / 30.0;
 			gain.r += y;
 			gain.g -= y / 2.0;
 			gain.b -= y / 2.0;
@@ -194,11 +204,11 @@ int main(int argc, char **argv) {
 		if(r > 0) {
 			pending--;
 		}
-		if(dirty && (pending < 2)) {
+		if(dirty && (pending < 3)) {
 			hi();
 			pending++;
 			dirty = 0;
 		}
-		usleep(5000);
+		usleep(500);
 	}
 }
