@@ -104,6 +104,8 @@ void hi(void) {
 	cryp->EncryptDecrypt(true, crypted, plainlen, crypted, cryptlen, (size_t *) &cryptlen);
 	w = write(sock, crypted, cryptlen);
 
+	printf("lift %.0f %.0f %.0f gamma %.2f %.2f %.2f gain %.0f %.0f %.0f\n", lift.r, lift.g, lift.b, gamma.r, gamma.g, gamma.b, gain.r, gain.g, gain.b);
+
 	free(crypted);
 	free(js);
 }
@@ -132,6 +134,7 @@ int main(int argc, char **argv) {
 	addr.sin_port = htons(49494);
 	connect(sock, (struct sockaddr *) &addr, sizeof(addr));
 	fcntl(sock, F_SETFL, O_NONBLOCK);
+	printf("Connected to Photoshop\n");
 
 	// Today's Photoshop password of choice
 	cryp = new PSCryptor("popeface");
@@ -149,6 +152,7 @@ int main(int argc, char **argv) {
 	c = c->next;
 	paths[2] = strdup(c->path);
 	qsort(paths, 3, sizeof(char *), cmp);
+	printf("Got three balls on %s, %s and %s\n", paths[2], paths[1], paths[0]);
 	ball1 = hid_open_path(paths[2]);
 	ball2 = hid_open_path(paths[1]);
 	ball3 = hid_open_path(paths[0]);
@@ -159,10 +163,11 @@ int main(int argc, char **argv) {
 	// Read from the balls, update state, write to Photoshop
 	unsigned char b[256];
 	float ring, x, y;
-	int r, dirty = 0, pending = 0;
+	int r, dirty = 0, pending = 0, reset = 0;
 	lift.r = lift.g = lift.b = 0.0;
 	gamma.r = gamma.g = gamma.b = 1.0;
 	gain.r = gain.g = gain.b = 255.0;
+	printf("Ready...\n");
 	while(1) {
 		r = hid_read(ball1, b, sizeof(b));
 		if(r > 0) {
@@ -178,7 +183,11 @@ int main(int argc, char **argv) {
 			lift.r -= ring;
 			lift.g -= ring;
 			lift.b -= ring;
+			if(b[0]) {
+				lift.r = lift.g = lift.b = 0.0;
+			}
 			dirty = 1;
+			memset(b, 0, sizeof(b));
 		}
 		r = hid_read(ball2, b, sizeof(b));
 		if(r > 0) {
@@ -194,7 +203,11 @@ int main(int argc, char **argv) {
 			gamma.r -= ring;
 			gamma.g -= ring;
 			gamma.b -= ring;
+			if(b[0]) {
+				gamma.r = gamma.g = gamma.b = 1.0;
+			}
 			dirty = 1;
+			memset(b, 0, sizeof(b));
 		}
 		r = hid_read(ball3, b, sizeof(b));
 		if(r > 0) {
@@ -210,7 +223,11 @@ int main(int argc, char **argv) {
 			gain.r -= ring;
 			gain.g -= ring;
 			gain.b -= ring;
+			if(b[0]) {
+				gain.r = gain.g = gain.b = 255.0;
+			}
 			dirty = 1;
+			memset(b, 0, sizeof(b));
 		}
 		// Check Photoshop sockets for acks
 		r = read(sock, b, sizeof(b));
@@ -218,7 +235,7 @@ int main(int argc, char **argv) {
 			pending--;
 		}
 		// Try not to flood Photoshop
-		if(dirty && (pending < 1)) {
+		if(dirty && (pending < 2)) {
 			hi();
 			pending++;
 			dirty = 0;
