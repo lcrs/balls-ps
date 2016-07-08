@@ -9,5 +9,7 @@ It's lacking any kind of error checking or configurability, but it works pretty 
 
 Performance is abysmal but that seems to be a hallmark of Photoshop's scripting API.
 
+Demo: http://lewisinthelandofmachines.tumblr.com/post/60137039416/poverty-stricken-grading-part-2-mans-dont-even
+
 xo
 
